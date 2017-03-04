@@ -13,24 +13,46 @@ The blittable feature will give language enforcement to the class of types known
 ## Motivation
 [motivation]: #motivation
 
-The primary motivation is to make it easier to author low level interop code in C#.  Blittable types are commonly used in interop code because they can be marshaled directly between native and managed memory. The bits can be moved as is 
+The primary motivation is to make it easier to author low level interop code in C#.  Blittable types are one of the core building blocks for interop code, yet abstracting around them is difficult today due to a lack of declarative language support.  
 
-This feature also allows developers to be more declarative about their interop types.  Today there is no way to assert and enforce a particular type is interop compatible (free of references).  Instead developers must resort to manual inspection on structures they consume.  
+This is the case even though blittable types are well defined in the language spec and many features, like pointers, can operate only on them.  The language chooses to let structs implicitly opt into being blittable by virtue of their construction with no avenue for opting out of such a classification.
 
-Even when completed properly there is no guarantee that those structures will remain interop compatible in future releases.  The owning developer may never have meant for the struct to be interop and hence wouldn't think it a break to add a reference type to the definition.  
+While attractive in small applications this is more difficult to manage across a large set of libraries authored by different developers.  It means small field additions to structs can cause compile and runtime breaks in downstream consumers with no warning to the developers that made the change.  This spooky action at a distance is one of the core problems with having an implicit opt in model here. 
 
-**need** spooky action at a distance here 
+A declarative, explicit opt in model makes it easier to code in this area.  Developers can be very explicit about the types they intend for interop.  This gives them compiler help when mistakes are made in their application and in any libraries they consume.  
 
-The blittable feature helps avoid this by making the intent to be reference free declarative and enforcable.
+The lack of compile time support also makes it difficult to abstract over blittable types.  It's not possible for instance to author common helper routines using generic code:
 
-This feature also allows developers to declaratively mark their types as suitable for interop.  Today there is no way to mark a type in this manner and developers need to resort to guessing based on the structure of the type involved.  
+``` c#
+void Hash<T>(T value) where T : blittable struct
+{
+    using (T* p = &value) { 
+        ...
+    }
+}
+```
 
-This feature allows developers to declaratively mark their types as useful in interop scenarios.  
+Instead developers are forced to rewrite virtually the same code for all of their blittable types:
 
-Additionally having bilttable types in the language will open the door to a number of other features in the language:
+``` c#
+void Hash(Point p) { 
+    ...
+}
 
-- Fixed sized buffers: **research** why can't we do this today even with reference types?  Seems fine now that we have ref returns. 
-- Span and cast method.
+void Hash(Time t) { 
+    ...
+}
+```
+
+The lack of constraints here also make it impossible to have efficient conversions between streams of data and more structured types.  This is an operation that is common in networking stacks and serialization layers:
+
+``` c#
+Span<byte> Convert<T>(ref T value) where T : blittable {
+    ...
+}
+```
+
+Such routines are advantageous because they are provably safe at compile time and allocation free.  Interop authors today can not due this (even though it's at a layer where perf is critical).  Instead they need to rely on allocating routines that have expensive runtime checks to verify values are correctly blittable.
 
 ## Detailed design
 [design]: #detailed-design
@@ -113,15 +135,26 @@ blittable struct LayoutExample
 ## Drawbacks
 [drawbacks]: #drawbacks
 
+The primary drawback of this feature is that it serves a small number of developers: typically low level library authors or frameworks.  Hence it's spending precious language time for a small number of developers. 
+
+Yet these frameworks are are often the basis for the majority of .NET applications out there.  Hence performance / correctness wins at this level can have a riple effect on the .NET ecosystem.  This makes the feature worth considering even with the limited audience. 
+
+There will also likely be a small transition period after this is released where core libraries move to adopt it.  Types like [System.Runtime.InteropServices.ComTypes.FILETIME](https://msdn.microsoft.com/en-us/library/system.runtime.interopservices.comtypes.filetime(v=vs.110).aspx) are common in interop code.  Until it is marked as `blittable` in source though, developers won't be able to depend on it in their libraries.  
+
 ## Alternatives
 [alternatives]: #alternatives
 
-mention the F# unmanaged constraint 
+There are a couple of alternatives to consider:
+
+- The status quo:  The feature is not justified on its own merits and developers continue to use the implicit opt in behavior.
+- Generic constraint only: The blittable keyword is used on generic constraints only.  This allows for developers to author efficient helper libraries.  But the types involved lack any declarative support and hence are fragile across distributed development. 
+
 
 ## Unresolved questions
 [unresolved]: #unresolved-questions
 
-n/a
+- blittable vs. unmanaged.  The F# language has a very [similar feature](https://docs.microsoft.com/en-us/dotnet/articles/fsharp/language-reference/generics/constraints) which uses the keyword unmanaged. The blittable name comes from the use in Midori.  May want to look to precedence here and use unmanaged instead. 
+- Verifier: does the verifier / runtime need to be updated to understad the use of pointers to generic type parameters?  Or can it simply work as is without changes. 
 
 ## Design meetings
 
