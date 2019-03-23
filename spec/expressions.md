@@ -2602,7 +2602,7 @@ await_expression
     ;
 ```
 
-An *await_expression* is only allowed in the body of an async function ([Iterators](classes.md#iterators)). Within the nearest enclosing async function, an *await_expression* may not occur in these places:
+An *await_expression* is only allowed in the body of an async function ([Async functions](classes.md#async-functions)). Within the nearest enclosing async function, an *await_expression* may not occur in these places:
 
 *  Inside a nested (non-async) anonymous function
 *  Inside the block of a *lock_statement*
